@@ -117,6 +117,7 @@ The first speech-to-text provider is local OpenAI Whisper inference. Later provi
 - `assets/icon.svg`: authored icon source; Tauri-generated sizes live in `src-tauri/icons`.
 - `docs`: decisions, compatibility, validation, and third-party attribution status.
 - `tests/desktop`: dedicated external editor/browser fixtures and real-runtime UI checks.
+- `.github/workflows/build.yml`: fresh Windows builds and tagged preview installer releases; macOS and Ubuntu packages are not published while their native functionality is unfinished.
 
 Commands executed successfully during initialization:
 

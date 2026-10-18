@@ -166,7 +166,7 @@ This is an initial Windows implementation, not the completed cross-platform rele
 | macOS Apple Silicon and Intel | Native insertion/input detection and desktop validation remain unfinished. |
 | Ubuntu X11 and Wayland | Native input adapters and desktop validation remain unfinished; these are separate compatibility cases. |
 | Hold-to-talk | Unfinished; current shortcuts use toggle and cancel. |
-| Public distribution | Windows test installer is unsigned. Signing, complete distribution-license review, and the full release acceptance matrix remain outstanding. |
+| Public distribution | Windows preview installer is available from [GitHub Releases](#download) and is unsigned. Signing, complete distribution-license review, and the full release acceptance matrix remain outstanding. |
 
 See [compatibility](docs/compatibility.md) for platform boundaries and [validation](docs/validation.md) for checks actually performed. Immediate post-wake speech, comprehensive stop-command handling, actual login/lock/suspend scenarios, games, elevated apps, keyboard layouts/IME, and settings-preserving upgrades still need their acceptance evidence.
 
