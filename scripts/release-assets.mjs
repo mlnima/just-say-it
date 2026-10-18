@@ -23,9 +23,10 @@ const expectedInstaller = `${configuration.productName}_${configuration.version}
 if (!readdirSync(bundleDirectory).includes(expectedInstaller)) throw new Error(`Installer is missing: ${expectedInstaller}`);
 const output = join(projectDirectory, 'artifacts', 'release');
 mkdirSync(output, { recursive: true });
-const installer = join(output, expectedInstaller);
+const assetName = expectedInstaller.replaceAll(' ', '.');
+const installer = join(output, assetName);
 copyFileSync(join(bundleDirectory, expectedInstaller), installer);
 const checksum = createHash('sha256').update(readFileSync(installer)).digest('hex');
-writeFileSync(join(output, 'SHA256SUMS'), `${checksum}  ${expectedInstaller}\n`);
+writeFileSync(join(output, 'SHA256SUMS'), `${checksum}  ${assetName}\n`);
 copyFileSync(join(projectDirectory, 'docs', 'THIRD-PARTY-NOTICES.md'), join(output, 'THIRD-PARTY-NOTICES.md'));
-console.log(`Prepared ${tag}: ${expectedInstaller} and SHA256SUMS.`);
+console.log(`Prepared ${tag}: ${assetName} and SHA256SUMS.`);

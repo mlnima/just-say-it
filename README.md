@@ -172,7 +172,7 @@ See [compatibility](docs/compatibility.md) for platform boundaries and [validati
 
 ## Download
 
-**[Download the Windows x64 preview installer](https://github.com/mlnima/just-say-it/releases/download/v0.1.0/Just%20Say%20It_0.1.0_x64-setup.exe)** · [Release notes and checksums](https://github.com/mlnima/just-say-it/releases/tag/v0.1.0) · [All releases](https://github.com/mlnima/just-say-it/releases)
+**[Download the Windows x64 preview installer](https://github.com/mlnima/just-say-it/releases/download/v0.1.0/Just.Say.It_0.1.0_x64-setup.exe)** · [Release notes and checksums](https://github.com/mlnima/just-say-it/releases/tag/v0.1.0) · [All releases](https://github.com/mlnima/just-say-it/releases)
 
 Run the downloaded `-setup.exe`, then open Settings from the tray. The installer includes the native inference libraries; users do not need the source code or development tools. Models are downloaded separately in Settings. If WebView2 is missing, setup may need an internet connection to install it.
 
@@ -213,11 +213,11 @@ npm run desktop
 | --- | --- |
 | `npm run build` | Strict TypeScript check and production frontend build. |
 | `npm run test:core` | Desktop-independent core tests. |
-| `npm run cargo -- test --workspace` | Workspace tests; real-device/model/desktop tests remain ignored unless explicitly enabled. |
+| `node scripts/cargo.mjs test --workspace` | Workspace tests; real-device/model/desktop tests remain ignored unless explicitly enabled. |
 | `npm run check:files` | Verify that each authored code file contains fewer than 300 lines. |
 | `node --test scripts/tests/build-environment.test.mjs` | Check actual tool discovery and explicit environment overrides. |
 | `npm run package` | Build a Windows NSIS test installer with its matching native inference libraries. |
-| `npm run package -- --no-bundle` | Build the release executable and adjacent native libraries without an installer. |
+| `node scripts/package.mjs --no-bundle` | Build the release executable and adjacent native libraries without an installer. |
 
 The Windows installer is written to `target/release/bundle/nsis/Just Say It_0.1.0_x64-setup.exe`. Packaging does not publish or sign it. Keep the adjacent native DLLs with an unpackaged executable. Quit a running development app before rebuilding native dependencies because Windows locks loaded DLLs.
 
@@ -244,7 +244,7 @@ Real adapter and desktop tests require the catalog models, locally generated spe
 powershell.exe -NoProfile -File tests/desktop/generate-audio.ps1
 # Place the catalog models in artifacts/models; see docs/validation.md.
 # Set PLAYWRIGHT_MODULE_PATH if Playwright is supplied externally.
-npm run cargo -- test --workspace -- --include-ignored --test-threads=1
+node scripts/cargo.mjs test --workspace -- --include-ignored --test-threads=1
 ```
 
 Do not type while these tests own their dedicated fixture windows. They verify the fixture process before dispatching text. The wrapper copies matching ONNX libraries beside the test executables; models, audio, browser profiles, and build output stay under ignored directories. Additional theme, restart, settings, runtime, and download checks are documented in the [validation record](docs/validation.md).
