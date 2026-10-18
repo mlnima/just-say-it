@@ -1,0 +1,28 @@
+[
+  {
+    "id": "whisper-tiny-q5",
+    "kind": "speech",
+    "label": "Whisper Tiny · multilingual · Q5",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/f281eb45af861ab5e5297d23694b7d46e090c02c/ggml-tiny-q5_1.bin",
+    "sha256": "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7",
+    "bytes": 32152673,
+    "file_name": "ggml-tiny-q5_1.bin",
+    "archive_directory": null,
+    "license": "MIT (OpenAI Whisper model)",
+    "source": "https://huggingface.co/ggerganov/whisper.cpp",
+    "languages": "Multilingual dictation; quality varies by language and hardware."
+  },
+  {
+    "id": "wake-english",
+    "kind": "wake",
+    "label": "English keyword detector · 3.3M · INT8",
+    "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2",
+    "sha256": "f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a",
+    "bytes": 17626723,
+    "file_name": "wake.tar.bz2",
+    "archive_directory": "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
+    "license": "Apache-2.0 (sherpa-onnx model repository); see upstream model and GigaSpeech terms",
+    "source": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models",
+    "languages": "English wake and stop phrases only; independent of dictation language."
+  }
+]

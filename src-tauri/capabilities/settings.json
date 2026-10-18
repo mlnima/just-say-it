@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "settings",
+  "description": "Only the bundled settings window can access the application commands.",
+  "windows": ["settings"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-theme", "dialog:allow-open", "allow-app-commands"]
+}

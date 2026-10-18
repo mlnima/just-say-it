@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-app-commands"
+description = "Read configuration and invoke explicit local dictation controls."
+commands.allow = ["get_snapshot", "save_settings", "list_microphones", "control", "get_recovery", "get_models", "install_model", "cancel_download", "import_model", "test_microphone", "test_phrase"]

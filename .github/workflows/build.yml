@@ -1,0 +1,72 @@
+name: Windows build and release
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the pinned npm version
+        shell: pwsh
+        run: npm install --global ((Get-Content package.json | ConvertFrom-Json).packageManager)
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install native binding generator
+        run: python -m pip install --target artifacts/build-tools libclang==18.1.1
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - name: Check authored file sizes
+        run: npm run check:files
+      - name: Test build tooling
+        run: node --test scripts/tests/build-environment.test.mjs
+      - name: Build frontend
+        run: npm run build
+      - name: Test workspace
+        run: node scripts/cargo.mjs test --workspace --locked
+      - name: Build Windows installer
+        run: node scripts/package.mjs --ci -- --locked
+      - name: Prepare versioned installer and checksums
+        run: node scripts/release-assets.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-installer
+          path: artifacts/release/*
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64-installer
+          path: release-assets
+      - name: Publish Windows preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --verify-tag --prerelease --title "$RELEASE_TAG — Windows preview" \
+            --notes-file docs/release-notes.md

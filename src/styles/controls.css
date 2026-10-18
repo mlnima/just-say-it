@@ -1,0 +1,43 @@
+.field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 19px; min-width: 0; }
+.field > label { font-size: 12px; font-weight: 550; color: var(--field-label); }
+input, select, textarea { border: 1px solid var(--field-border); border-radius: 7px; padding: 10px 12px; background: var(--field); color: var(--field-text); width: 100%; font-size: 12px; min-height: 40px; }
+input::placeholder, textarea::placeholder { color: var(--placeholder); }
+select { padding-right: 25px; }
+.field small { font-size: 10px; }
+.primary, .secondary { display: inline-flex; justify-content: center; align-items: center; gap: 12px; border-radius: 7px; font-size: 11px; font-weight: 500; padding: 9px 13px; line-height: 1.4; }
+.primary { border: 1px solid var(--green); background: var(--green); color: var(--primary-text); }
+.primary:hover:not(:disabled) { background: var(--primary-hover); }
+.secondary { border: 1px solid var(--secondary-border); background: var(--secondary); color: var(--secondary-text); }
+.secondary:hover:not(:disabled) { background: var(--secondary-hover); }
+.text-button { border: 0; background: none; color: var(--text-button); font-size: 11px; padding: 7px 0; text-align: left; }
+.text-button:hover:not(:disabled) { text-decoration: underline; }
+.inline-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.switch-row { display: flex; gap: 20px; align-items: center; justify-content: space-between; padding: 15px 0; }
+.switch-row strong { font-size: 12px; font-weight: 550; }
+.switch-row p { font-size: 11px; line-height: 1.65; margin-top: 4px; max-width: 470px; }
+.switch { border: 1px solid var(--switch-border); width: 36px; height: 21px; border-radius: 20px; padding: 3px; flex-shrink: 0; background: var(--switch); }
+.switch > span { display: block; width: 13px; height: 13px; background: var(--switch-thumb); border-radius: 50%; box-shadow: 0 1px 3px var(--switch-shadow); transition: transform .15s; }
+.switch[data-on='true'] { background: var(--switch-on); border-color: var(--switch-on); }
+.switch[data-on='true'] > span { transform: translateX(14px); }
+.unset { display: inline-block; font-size: 9px; color: var(--unset); margin-top: 5px; }
+.meter { height: 4px; border-radius: 4px; background: var(--meter); margin: 17px 0 25px; overflow: hidden; }
+.meter > span { height: 100%; display: block; background: var(--meter-fill); transition: width .15s; }
+.two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.model-picker { margin-bottom: 20px; }
+.model-download { border: 1px solid var(--model-border); background: var(--model); border-radius: 8px; padding: 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.model-download strong { font-size: 11px; font-weight: 550; display: block; }
+.model-download small { display: block; font-size: 10px; margin-top: 3px; }
+.model-footnote { display: block; font-size: 9px; }
+.download-progress { display: flex; gap: 16px; align-items: center; }
+progress { width: 100%; height: 6px; accent-color: var(--progress); }
+.callout { border: 1px solid var(--callout-border); background: var(--callout); padding: 11px 13px; border-radius: 7px; color: var(--callout-text); }
+.observed { display: flex; align-items: center; gap: 8px; padding: 12px 0; font-size: 12px; }
+.status-dot { width: 6px; height: 6px; border: 1px solid var(--status-dot); border-radius: 50%; }
+.rule { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid var(--border); margin-top: 20px; padding-top: 18px; }
+.rule strong { font-size: 12px; color: var(--rule-strong); }
+.rule span { font-size: 11px; color: var(--rule-text); }
+.recovery-text { margin-top: 18px; resize: vertical; user-select: text; font-size: 13px; }
+.diagnostics { font-size: 12px; margin: 20px 0; }
+.diagnostics > div { display: flex; justify-content: space-between; gap: 15px; padding: 10px 0; border-bottom: 1px solid var(--diagnostic-border); }
+dt { color: var(--diagnostic-label); }
+dd { margin: 0; color: var(--diagnostic-value); }

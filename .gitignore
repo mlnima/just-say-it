@@ -1,0 +1,10 @@
+/node_modules/
+/target/
+/dist/
+/src-tauri/gen/
+/artifacts/
+*.wav
+*.bin
+*.onnx
+*.part
+.env*
