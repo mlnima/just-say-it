@@ -1,18 +1,20 @@
 use crate::{audio::Capture, shortcuts, speech::LocalWhisper, wake::LocalWake, worker::Worker};
-use dictation_core::{session::Phase, settings::Settings};
+use dictation_core::{defaults, session::Phase, settings::{Settings, SpeechDevice}};
 use std::time::Instant;
 use tauri_plugin_autostart::ManagerExt;
 
 impl Worker {
     pub fn initialize(&mut self) {
+        let gpu = crate::speech_device::detect_gpu();
+        self.runtime.update(|s| s.gpu = gpu);
         let shortcut_result = shortcuts::apply(&self.runtime.app, &self.settings);
         let startup_result = self.apply_startup(&self.settings);
-        self.runtime.update(|s| {
-            s.shortcuts_registered =
-                shortcut_result.is_ok() && self.settings.toggle_shortcut.is_some()
-        });
+        let model_result = self.preload_speech_model();
+        self.runtime
+            .update(|s| s.shortcuts_registered = shortcut_result.is_ok());
         if let Err(error) = shortcut_result
             .and(startup_result)
+            .and(model_result)
             .and_then(|_| self.listen())
         {
             self.fail(error);
@@ -50,6 +52,14 @@ impl Worker {
             return Err("Finish the active session or test, or discard pending text before changing settings.".into());
         }
         settings.validate()?;
+        if settings.speech_device == Some(SpeechDevice::Gpu) {
+            let gpu = crate::speech_device::detect_gpu();
+            let unavailable = gpu.reason.clone();
+            self.runtime.update(|s| s.gpu = gpu);
+            if let Some(reason) = unavailable {
+                return Err(reason);
+            }
+        }
         if settings.language.as_ref().is_some_and(|language| {
             language != "auto" && whisper_rs::get_lang_id(language).is_none()
         }) {
@@ -67,13 +77,20 @@ impl Worker {
             .map_err(|_| "Cannot inspect the existing login startup registration.")?;
         self.capture = None;
         let prepared = (|| {
-            if settings.speech_model != previous.speech_model {
+            let speech = if settings.speech_model != previous.speech_model
+                || settings.speech_device != previous.speech_device
+                || (settings.model_idle_seconds().is_none() && self.whisper.is_none())
+            {
                 settings
                     .speech_model
                     .as_ref()
-                    .map(|path| LocalWhisper::load(path))
-                    .transpose()?;
-            }
+                    .map(|path| LocalWhisper::load(
+                        path, settings.speech_device.unwrap_or(defaults::SPEECH_DEVICE),
+                    ))
+                    .transpose()?
+            } else {
+                None
+            };
             let wake = if settings.wake_enabled == Some(true) && !settings.paused {
                 Some(LocalWake::load(
                     settings
@@ -116,14 +133,17 @@ impl Worker {
             shortcuts::apply(&self.runtime.app, &settings)?;
             self.apply_startup(&settings)?;
             self.store.save(&settings)?;
-            Ok::<_, String>((wake, capture))
+            Ok::<_, String>((speech, wake, capture))
         })();
-        let (wake, capture) = match prepared {
+        let (speech, wake, capture) = match prepared {
             Ok(prepared) => prepared,
             Err(error) => {
                 let mut restored = previous.clone();
                 restored.launch_at_login = Some(previous_startup);
-                let rollback = shortcuts::apply(&self.runtime.app, &previous)
+                let shortcut_result = shortcuts::apply(&self.runtime.app, &previous);
+                self.runtime
+                    .update(|s| s.shortcuts_registered = shortcut_result.is_ok());
+                let rollback = shortcut_result
                     .and_then(|_| self.apply_startup(&restored))
                     .and_then(|_| self.listen());
                 return Err(match rollback {
@@ -132,8 +152,11 @@ impl Worker {
                 });
             }
         };
-        if settings.speech_model != previous.speech_model {
-            self.whisper = None;
+        if settings.speech_model != previous.speech_model
+            || settings.speech_device != previous.speech_device || speech.is_some()
+        {
+            self.whisper = speech;
+            self.last_model_use = Instant::now();
         }
         self.settings = settings;
         self.wake = wake;
@@ -142,8 +165,7 @@ impl Worker {
         self.stop = None;
         self.wake_samples = 0;
         self.session.cancel(self.settings.paused);
-        self.runtime
-            .update(|s| s.shortcuts_registered = self.settings.toggle_shortcut.is_some());
+        self.runtime.update(|s| s.shortcuts_registered = true);
         self.publish("Settings saved and applied.");
         Ok(())
     }

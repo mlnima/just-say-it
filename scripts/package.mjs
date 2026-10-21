@@ -3,7 +3,9 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { buildEnvironment, projectDirectory } from './build-environment.mjs';
+import { prepareVulkanRuntime } from './vulkan-runtime.mjs';
 
+await prepareVulkanRuntime();
 const environment = buildEnvironment();
 const run = (args) => new Promise((resolve, reject) => {
   const child = spawn(process.execPath, ['node_modules/@tauri-apps/cli/tauri.js', ...args], { cwd: projectDirectory, env: environment, stdio: 'inherit', windowsHide: true });
@@ -22,7 +24,7 @@ if (process.platform === 'win32') {
   const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: projectDirectory, env: environment, encoding: 'utf8', windowsHide: true }));
   const target = values.target || environment.CARGO_BUILD_TARGET;
   const output = join(metadata.target_directory, ...(target ? [target] : []), values.debug ? 'debug' : 'release');
-  const libraries = ['onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'sherpa-onnx-c-api.dll'];
+  const libraries = ['onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'sherpa-onnx-c-api.dll', 'vulkan-1.dll', 'VulkanRT-License.txt'];
   const resources = Object.fromEntries(libraries.map((name) => {
     const path = join(output, name);
     if (!existsSync(path)) throw new Error(`Native runtime library is missing: ${path}`);

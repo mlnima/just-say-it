@@ -1,5 +1,7 @@
 import { Field } from '../components/Fields';
 import { ModelPicker } from './ModelPicker';
+import { ModelRetentionSettings } from './ModelRetentionSettings';
+import { SpeechDeviceSettings } from './SpeechDeviceSettings';
 import { request } from '../bridge/commands';
 import type { Microphone, Model, Settings, Snapshot } from '../bridge/types';
 
@@ -26,6 +28,8 @@ export const AudioSettings = ({ draft, snapshot, patch, perform, microphones, mo
       <div className="inline-actions"><button type="button" className="secondary" onClick={() => perform(refreshMicrophones)}>Refresh devices</button><button type="button" className="secondary" onClick={() => perform(() => request('test_microphone', undefined))}>Test saved microphone</button></div>
       <div className="meter" role="meter" aria-label="Observed microphone level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={snapshot.microphone_level}><span style={{ width: `${Math.min(100, snapshot.microphone_level * 400)}%` }} /></div>
       <ModelPicker kind="speech" value={draft.speech_model} onChange={(value) => patch({ speech_model: value })} models={models} snapshot={snapshot} perform={perform} refresh={refreshModels} />
+      <SpeechDeviceSettings draft={draft} snapshot={snapshot} patch={patch} />
+      <ModelRetentionSettings draft={draft} snapshot={snapshot} patch={patch} />
       <Field label="Dictation language">
         <select value={draft.language ?? ''} onChange={(event) => patch({ language: event.target.value || null })}>
           <option value="">Not selected</option>
@@ -33,6 +37,6 @@ export const AudioSettings = ({ draft, snapshot, patch, perform, microphones, mo
         </select>
       </Field>
     </section>
-    <div className="note"><strong>Small by intention.</strong> Whisper uses up to {snapshot.defaults.inference_threads} CPU threads during transcription. It performs no inference while waiting for activation and unloads after inactivity.</div>
+    <div className="note">Whisper uses up to {snapshot.defaults.inference_threads} CPU threads and can offload supported operations when GPU is selected and available. Keeping the model loaded uses memory and avoids reloading it for the next dictation; it performs no inference while idle.</div>
   </>
 );

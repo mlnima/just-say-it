@@ -1,32 +1,62 @@
 use dictation_core::{
     defaults,
     ports::{SpeechProvider, SpeechRequest},
+    settings::SpeechDevice,
 };
 use std::sync::atomic::Ordering;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+};
 
 pub struct LocalWhisper {
     context: WhisperContext,
+    prepared: Option<WhisperState>,
+    pub device_request: SpeechDevice,
 }
 
 impl LocalWhisper {
-    pub fn load(path: &str) -> Result<Self, String> {
+    pub fn load(path: &str, device: SpeechDevice) -> Result<Self, String> {
         let mut params = WhisperContextParameters::default();
-        params.use_gpu(false);
+        params.use_gpu(device == SpeechDevice::Gpu);
+        if device == SpeechDevice::Gpu {
+            params.gpu_device(crate::speech_device::require_gpu()?.index);
+        }
         let context = WhisperContext::new_with_params(path, params)
-            .map_err(|_| "Whisper model could not load. Select a valid whisper.cpp GGML model.")?;
-        Ok(Self { context })
+            .map_err(|_| match device {
+                SpeechDevice::Cpu => "Whisper model could not load. Select a valid whisper.cpp GGML model.",
+                SpeechDevice::Gpu => "Whisper could not load the model with GPU offload. Check GPU memory and its driver, or select CPU.",
+            })?;
+        let mut speech = Self {
+            context,
+            prepared: None,
+            device_request: device,
+        };
+        speech.prepare()?;
+        Ok(speech)
+    }
+
+    pub fn prepare(&mut self) -> Result<(), String> {
+        if self.prepared.is_none() {
+            self.prepared = Some(
+                self.context.create_state()
+                    .map_err(|_| "Whisper could not allocate its working state.")?,
+            );
+        }
+        Ok(())
     }
 }
 
 impl SpeechProvider for LocalWhisper {
     fn transcribe(&mut self, request: SpeechRequest<'_>) -> Result<String, String> {
-        let mut state = self
-            .context
-            .create_state()
-            .map_err(|_| "Whisper could not allocate its working state.")?;
+        self.prepare()?;
+        let mut state = self.prepared.take()
+            .ok_or("Whisper working state is unavailable.")?;
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_n_threads(defaults::INFERENCE_THREADS);
+        let available = std::thread::available_parallelism().map_or(
+            defaults::INFERENCE_THREADS,
+            |count| count.get().min(defaults::INFERENCE_THREADS as usize) as i32,
+        );
+        params.set_n_threads(available);
         params.set_translate(false);
         params.set_language((request.language != "auto").then_some(request.language));
         params.set_no_context(true);
@@ -64,6 +94,8 @@ impl SpeechProvider for LocalWhisper {
                 );
             }
         }
+        // Used state contains utterance data. Drop it after reading the result;
+        // keep only an empty prepared state between sessions, never past audio.
         Ok(text.trim().to_owned())
     }
 }

@@ -8,6 +8,7 @@ This document is an attribution summary for the local test distribution, not a l
 | React | MIT; https://github.com/facebook/react |
 | whisper-rs 0.16.0 | Unlicense; https://codeberg.org/tazz4843/whisper-rs |
 | whisper.cpp | MIT; https://github.com/ggml-org/whisper.cpp |
+| Vulkan Runtime 1.4.321.0 (Windows loader) | MIT / Apache-2.0; https://vulkan.lunarg.com/; accompanying `VulkanRT-License.txt` is included in Windows packages. |
 | OpenAI Whisper weights (optional separate download) | MIT; https://github.com/openai/whisper |
 | sherpa-onnx 1.13.8 | Apache-2.0; https://github.com/k2-fsa/sherpa-onnx |
 | ONNX Runtime (sherpa-onnx's matching native distribution) | MIT; https://github.com/microsoft/onnxruntime |

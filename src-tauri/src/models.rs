@@ -57,7 +57,9 @@ pub fn list(root: &Path) -> Result<Vec<ModelEntry>, String> {
 
 pub fn validate(kind: &str, path: &str) -> Result<(), String> {
     match kind {
-        "speech" => crate::speech::LocalWhisper::load(path).map(|_| ()),
+        "speech" => crate::speech::LocalWhisper::load(
+            path, dictation_core::settings::SpeechDevice::Cpu,
+        ).map(|_| ()),
         "wake" => crate::wake::LocalWake::load(path, "hello world").map(|_| ()),
         _ => Err("Unknown model kind.".into()),
     }

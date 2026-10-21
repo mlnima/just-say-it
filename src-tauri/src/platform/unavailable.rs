@@ -9,10 +9,34 @@ impl OverlayHandle {
 }
 
 #[derive(Clone, Default)]
+pub struct ScreenOverlay;
+impl ScreenOverlay {
+    pub fn refresh(&self) {}
+    pub fn stop(&self) {}
+}
+
+pub fn start_screen_overlay(runtime: crate::runtime::Runtime) {
+    runtime.update(|s| {
+        s.screen_overlay_error =
+            Some("The screen overlay is currently available on Windows only.".into());
+    });
+}
+
+#[derive(Clone, Default)]
 pub struct Target;
 impl Target {
     pub fn known(&self) -> bool {
         false
+    }
+    pub fn window_only(&self) -> bool {
+        false
+    }
+}
+
+pub struct ShortcutTarget;
+impl ShortcutTarget {
+    pub fn capture() -> Option<Self> {
+        None
     }
 }
 
@@ -22,6 +46,9 @@ impl Focus {
         Ok(Self)
     }
     pub fn inspect(&self) -> Target {
+        Target
+    }
+    pub fn shortcut_target(&self, _: Option<ShortcutTarget>) -> Target {
         Target
     }
     pub fn insert(&self, _: &Target, _: &str, _: &AtomicU64, _: u64) -> Delivery {

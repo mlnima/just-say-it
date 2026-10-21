@@ -1,7 +1,11 @@
+export type SpeechDevice = 'cpu' | 'gpu';
+
 export type Settings = {
   schema_version: number;
   microphone: string | null;
   speech_model: string | null;
+  speech_device: SpeechDevice | null;
+  model_retention: { idle_seconds: number } | 'never';
   language: string | null;
   wake_enabled: boolean | null;
   wake_phrase: string | null;
@@ -9,9 +13,9 @@ export type Settings = {
   stop_enabled: boolean | null;
   stop_phrase: string | null;
   input_button: boolean | null;
+  screen_overlay: boolean | null;
   launch_at_login: boolean | null;
   toggle_shortcut: string | null;
-  cancel_shortcut: string | null;
   silence_seconds: number | null;
   no_speech_seconds: number | null;
   recording_limit_seconds: number | null;
@@ -43,20 +47,28 @@ export type Snapshot = {
   microphone_level: number;
   wake_listening: boolean;
   whisper_loaded: boolean;
+  gpu: { checked: boolean; device: { index: number; name: string } | null; reason: string | null };
+  speech_device_request: SpeechDevice | null;
   inference_runs: number;
   phrase_detections: number;
   target_status: string;
   input_detection_supported: boolean;
+  screen_overlay_available: boolean;
+  screen_overlay_error: string | null;
   startup_registered: boolean | null;
   shortcuts_registered: boolean;
   pending_text: boolean;
   download: { id: string; received: number; total: number } | null;
   defaults: {
+    toggle_shortcut: string;
     silence_seconds: number;
     no_speech_seconds: number;
     recording_limit_seconds: number;
     recovery_seconds: number;
+    input_button_dismiss_seconds: number;
     inference_threads: number;
+    speech_device: SpeechDevice;
+    model_idle_options_seconds: number[];
   };
   languages: { id: string; label: string }[];
 };

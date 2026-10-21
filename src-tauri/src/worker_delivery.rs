@@ -1,4 +1,4 @@
-use crate::{speech::LocalWhisper, worker::Worker};
+use crate::worker::Worker;
 use dictation_core::{
     defaults,
     ports::{PassThrough, SpeechProvider, SpeechRequest, TextProcessor},
@@ -27,6 +27,7 @@ impl Worker {
         }
         self.stop = None;
         self.wake_pending = None;
+        self.last_model_use = Instant::now();
         let id = self.session.id;
         if !self.activity.has_speech() || self.audio.is_empty() {
             self.audio.clear();
@@ -38,14 +39,7 @@ impl Worker {
         }
         self.session.phase = Phase::Transcribing;
         self.publish("Microphone closed. Transcribing locally…");
-        if self.whisper.is_none() {
-            self.whisper = Some(LocalWhisper::load(
-                self.settings
-                    .speech_model
-                    .as_deref()
-                    .ok_or("Select a Whisper model.")?,
-            )?);
-        }
+        self.ensure_speech_model()?;
         let audio = std::mem::take(&mut self.audio);
         self.runtime.update(|s| s.inference_runs += 1);
         let request = SpeechRequest {
@@ -64,7 +58,7 @@ impl Worker {
             .ok_or("Whisper was not loaded.")?
             .transcribe(request);
         drop(audio);
-        self.last_inference = Instant::now();
+        self.last_model_use = Instant::now();
         if self.runtime.authorization.load(Ordering::Acquire) != id {
             self.session.cancel(self.settings.paused);
             self.publish("Session cancelled; late transcription discarded.");
@@ -125,9 +119,9 @@ impl Worker {
     fn complete(&mut self, text: String, outcome: Delivery) -> Result<(), String> {
         let message = match outcome {
             Delivery::Submitted => "Sent to app. The destination has not confirmed insertion; the latest text is temporarily available in Recovery.",
-            Delivery::Rejected => "Text was not sent: the target changed, is unsupported, a modifier is held, or the text needs review. Open Recovery.",
-            Delivery::Partial => "Only part of the input operation was accepted. Check the destination before using Recovery; nothing will retry automatically.",
-            Delivery::Unknown => "Delivery is uncertain because focus changed. Check the destination before using Recovery.",
+            Delivery::Rejected => "Text was not sent: the target changed, is unsupported, a modifier is held, or the text needs review. Open Recovery, or start another dictation to replace this result.",
+            Delivery::Partial => "Only part of the input operation was accepted. Check the destination before using Recovery; nothing will retry automatically. Another dictation replaces this result.",
+            Delivery::Unknown => "Delivery is uncertain because focus changed. Check the destination before using Recovery. Another dictation replaces this result.",
         };
         if let Ok(mut recovery) = self.runtime.recovery.lock() {
             *recovery = Some(text.clone());
@@ -137,6 +131,10 @@ impl Worker {
         self.target = None;
         self.pending_armed = false;
         self.cooldown = Instant::now() + Duration::from_millis(defaults::COOLDOWN_MILLIS);
+        self.publish(message);
+        // Delivery has already completed. Prepare empty buffers for the next
+        // dictation before reopening capture, without retaining past audio.
+        self.prepare_next_dictation()?;
         self.listen()?;
         self.publish(message);
         Ok(())

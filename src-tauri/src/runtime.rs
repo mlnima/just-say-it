@@ -1,4 +1,8 @@
-use crate::{platform::OverlayHandle, store::Store};
+use crate::{
+    platform::{OverlayHandle, ScreenOverlay},
+    runtime_status::{Language, OperationalDefaults, Snapshot},
+    store::Store,
+};
 use crossbeam_channel::{bounded, Sender};
 use dictation_core::{defaults, session::Phase, settings::Settings};
 use serde::{Deserialize, Serialize};
@@ -28,6 +32,7 @@ pub enum Action {
 pub enum Command {
     Interrupt,
     Action(Action),
+    Shortcut(Option<crate::platform::ShortcutTarget>),
     Save(Settings, Sender<Result<(), String>>),
     MicrophoneTest,
     PhraseTest,
@@ -39,45 +44,6 @@ pub struct Download {
     pub id: String,
     pub received: u64,
     pub total: u64,
-}
-
-#[derive(Clone, Serialize)]
-pub struct OperationalDefaults {
-    pub silence_seconds: f32,
-    pub no_speech_seconds: f32,
-    pub recording_limit_seconds: u32,
-    pub recovery_seconds: u64,
-    pub inference_threads: i32,
-}
-
-#[derive(Clone, Serialize)]
-pub struct Snapshot {
-    pub revision: u64,
-    pub app_name: String,
-    pub settings: Settings,
-    pub phase: Phase,
-    pub message: String,
-    pub microphone_open: bool,
-    pub microphone_name: Option<String>,
-    pub microphone_level: f32,
-    pub wake_listening: bool,
-    pub whisper_loaded: bool,
-    pub inference_runs: u64,
-    pub phrase_detections: u64,
-    pub target_status: String,
-    pub input_detection_supported: bool,
-    pub startup_registered: Option<bool>,
-    pub shortcuts_registered: bool,
-    pub pending_text: bool,
-    pub download: Option<Download>,
-    pub defaults: OperationalDefaults,
-    pub languages: Vec<Language>,
-}
-
-#[derive(Clone, Serialize)]
-pub struct Language {
-    pub id: String,
-    pub label: String,
 }
 
 #[derive(Clone)]
@@ -94,6 +60,7 @@ pub struct Runtime {
     pub recovery: Arc<Mutex<Option<String>>>,
     pub model_root: PathBuf,
     pub overlay: OverlayHandle,
+    pub screen_overlay: ScreenOverlay,
 }
 
 impl Runtime {
@@ -136,20 +103,28 @@ impl Runtime {
             microphone_level: 0.0,
             wake_listening: false,
             whisper_loaded: false,
+            gpu: crate::speech_device::GpuAvailability::default(),
+            speech_device_request: None,
             inference_runs: 0,
             phrase_detections: 0,
             target_status: "No supported editable input detected".into(),
             input_detection_supported: cfg!(windows),
+            screen_overlay_available: false,
+            screen_overlay_error: None,
             startup_registered: None,
             shortcuts_registered: false,
             pending_text: false,
             download: None,
             defaults: OperationalDefaults {
+                toggle_shortcut: defaults::TOGGLE_SHORTCUT,
                 silence_seconds: defaults::WAKE_SILENCE_SECONDS,
                 no_speech_seconds: defaults::NO_SPEECH_SECONDS,
                 recording_limit_seconds: defaults::MAX_RECORDING_SECONDS,
                 recovery_seconds: defaults::RECOVERY_SECONDS,
+                input_button_dismiss_seconds: defaults::OVERLAY_DISMISS_SECONDS,
                 inference_threads: defaults::INFERENCE_THREADS,
+                speech_device: defaults::SPEECH_DEVICE,
+                model_idle_options_seconds: defaults::MODEL_IDLE_OPTIONS_SECONDS,
             },
             languages,
         };
@@ -168,8 +143,10 @@ impl Runtime {
             cancel_download: Arc::new(AtomicBool::new(false)),
             recovery: Arc::new(Mutex::new(None)),
             overlay: OverlayHandle::default(),
+            screen_overlay: ScreenOverlay::default(),
         };
         crate::platform::start(runtime.clone());
+        crate::platform::start_screen_overlay(runtime.clone());
         let worker_runtime = runtime.clone();
         std::thread::Builder::new()
             .name("dictation".into())
@@ -194,7 +171,23 @@ impl Runtime {
             let _ = self
                 .app
                 .emit_to(defaults::SETTINGS_WINDOW, defaults::STATUS_EVENT, snapshot);
+            self.screen_overlay.refresh();
         }
+    }
+
+    fn finalizing(&self) -> bool {
+        self.snapshot().is_ok_and(|s| {
+            matches!(s.phase, Phase::Preparing | Phase::Transcribing | Phase::Inserting)
+        })
+    }
+
+    pub fn send_shortcut(&self) -> Result<(), String> {
+        if self.finalizing() {
+            return Ok(());
+        }
+        let target = crate::platform::ShortcutTarget::capture();
+        self.commands.try_send(Command::Shortcut(target))
+            .map_err(|_| "The control queue is busy. Try again.".into())
     }
 
     pub fn send(&self, action: Action) -> Result<(), String> {
@@ -208,12 +201,7 @@ impl Runtime {
             return Ok(());
         }
         if matches!(action, Action::Toggle | Action::Finish)
-            && self.snapshot().is_ok_and(|s| {
-                matches!(
-                    s.phase,
-                    Phase::Preparing | Phase::Transcribing | Phase::Inserting
-                )
-            })
+            && self.finalizing()
         {
             return Ok(());
         }
@@ -228,6 +216,7 @@ impl Runtime {
                 Ordering::AcqRel,
             );
             let _ = self.commands.try_send(Command::Interrupt);
+            self.screen_overlay.refresh();
             return Ok(());
         }
         self.commands
@@ -240,6 +229,7 @@ impl Runtime {
         self.stopping.store(true, Ordering::Release);
         self.cancel_download.store(true, Ordering::Release);
         self.overlay.stop();
+        self.screen_overlay.stop();
         let _ = self.commands.try_send(Command::Quit);
     }
 }

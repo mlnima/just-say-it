@@ -1,6 +1,7 @@
 use crate::{
     audio, downloads, models,
-    runtime::{Action, Command, Runtime, Snapshot},
+    runtime::{Action, Command, Runtime},
+    runtime_status::Snapshot,
 };
 use crossbeam_channel::bounded;
 use dictation_core::settings::Settings;

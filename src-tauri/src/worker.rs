@@ -38,7 +38,7 @@ pub struct Worker {
     pub ready: Sender<()>,
     pub test: Option<(bool, Instant)>,
     pub last_meter: Instant,
-    pub last_inference: Instant,
+    pub last_model_use: Instant,
     pub cooldown: Instant,
     pub pending_armed: bool,
     pub wake_pending: Option<usize>,
@@ -54,6 +54,18 @@ pub fn run(runtime: Runtime, commands: Receiver<Command>, store: Store, settings
         Err(error) => {
             runtime.update(|s| {
                 s.phase = Phase::Error;
+                s.message = error;
+            });
+            return;
+        }
+    };
+    #[cfg(windows)]
+    let focus = match focus.watch_changes() {
+        Ok(focus) => focus,
+        Err(error) => {
+            runtime.update(|s| {
+                s.phase = Phase::Error;
+                s.input_detection_supported = false;
                 s.message = error;
             });
             return;
@@ -79,7 +91,7 @@ pub fn run(runtime: Runtime, commands: Receiver<Command>, store: Store, settings
         ready,
         test: None,
         last_meter: Instant::now(),
-        last_inference: Instant::now(),
+        last_model_use: Instant::now(),
         cooldown: Instant::now(),
         pending_armed: false,
         wake_pending: None,
@@ -115,7 +127,7 @@ impl Worker {
         let message = message.into();
         let mic = self.capture.as_ref().map(|c| c.device_name.clone());
         let wake_listening = self.capture.is_some()
-            && self.session.phase == Phase::Idle
+            && matches!(self.session.phase, Phase::Idle | Phase::PendingDelivery)
             && self.wake.is_some()
             && self.wake_pending.is_none()
             && self.test.is_none();
@@ -131,6 +143,7 @@ impl Worker {
             s.microphone_name = mic;
             s.wake_listening = wake_listening;
             s.whisper_loaded = self.whisper.is_some();
+            s.speech_device_request = self.whisper.as_ref().map(|speech| speech.device_request);
             s.pending_text = self.session.recovery.is_some();
             if self.capture.is_none() {
                 s.microphone_level = 0.0;
@@ -144,7 +157,8 @@ impl Worker {
             3
         } else {
             match self.session.phase {
-                Phase::Idle | Phase::Error if self.settings.input_button == Some(true) => 1,
+                Phase::Idle | Phase::Error | Phase::PendingDelivery
+                    if self.settings.input_button == Some(true) => 1,
                 Phase::Recording => 2,
                 Phase::Transcribing | Phase::Inserting => 3,
                 _ => 0,
@@ -154,6 +168,12 @@ impl Worker {
     }
 
     pub fn fail(&mut self, message: String) {
+        if matches!(
+            self.session.phase,
+            Phase::Preparing | Phase::Recording | Phase::Transcribing | Phase::Inserting
+        ) {
+            self.last_model_use = Instant::now();
+        }
         self.capture = None;
         self.audio.clear();
         self.pre_roll.clear();
@@ -168,7 +188,7 @@ impl Worker {
         self.wake_samples = 0;
         if self.settings.paused
             || self.settings.wake_enabled != Some(true)
-            || self.session.phase != Phase::Idle
+            || !matches!(self.session.phase, Phase::Idle | Phase::PendingDelivery)
         {
             return Ok(());
         }
@@ -204,11 +224,12 @@ impl Worker {
         if self.capture.is_some()
             || self.test.is_some()
             || self.session.recovery.is_some()
-            || self.whisper.is_some()
+            || self.wake_pending.is_some()
         {
             Duration::from_millis(defaults::MAINTENANCE_MILLIS)
         } else {
-            Duration::from_secs(86_400)
+            self.model_idle_remaining()
+                .unwrap_or(Duration::from_secs(86_400))
         }
     }
 
@@ -244,12 +265,6 @@ impl Worker {
             let _ = self.listen();
             self.publish("Temporary recovery text expired.");
         }
-        if self.whisper.is_some()
-            && self.last_inference.elapsed() >= Duration::from_secs(defaults::MODEL_IDLE_SECONDS)
-            && self.session.phase != Phase::Recording
-        {
-            self.whisper = None;
-            self.publish("Whisper unloaded after inactivity. It will load on the next dictation.");
-        }
+        self.unload_idle_model();
     }
 }

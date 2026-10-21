@@ -8,7 +8,7 @@ import { AudioSettings } from './features/AudioSettings';
 import { ActivationSettings } from './features/ActivationSettings';
 import { DeliverySettings } from './features/DeliverySettings';
 import { BackgroundSettings } from './features/BackgroundSettings';
-import logo from '../assets/icon.svg';
+import logo from '../assets/icon.svg?no-inline';
 
 const sections = [
   { id: 'audio', title: 'Audio & model', icon: 'mic' },

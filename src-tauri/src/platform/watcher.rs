@@ -1,4 +1,8 @@
-use super::windows::Focus;
+use super::{
+    dismissal::Dismissals,
+    overlay::ButtonAction,
+    windows::{Focus, Target},
+};
 use crate::runtime::{Action, Runtime};
 use std::{
     cell::RefCell,
@@ -17,6 +21,8 @@ struct Watcher {
     runtime: Runtime,
     focus: Focus,
     window: HWND,
+    target: Target,
+    dismissals: Dismissals,
 }
 thread_local! { static WATCHER: RefCell<Option<Watcher>> = const { RefCell::new(None) }; }
 static EVENT_WINDOW: AtomicIsize = AtomicIsize::new(0);
@@ -43,14 +49,18 @@ pub fn run(runtime: Runtime) -> Result<(), String> {
             WS_POPUP,
             0,
             0,
-            108,
-            34,
+            dictation_core::defaults::OVERLAY_WIDTH,
+            dictation_core::defaults::OVERLAY_HEIGHT,
             None,
             None,
             Some(module.into()),
             None,
         )
         .map_err(|_| "Cannot create the input button.")?;
+        if let Err(error) = super::window_policy::exclude_from_capture(window) {
+            let _ = DestroyWindow(window);
+            return Err(error);
+        }
         runtime
             .overlay
             .window
@@ -62,6 +72,8 @@ pub fn run(runtime: Runtime) -> Result<(), String> {
                 runtime,
                 focus,
                 window,
+                target: Target::default(),
+                dismissals: Dismissals::default(),
             })
         });
         let hooks: Vec<_> = [
@@ -109,10 +121,18 @@ unsafe extern "system" fn focus_event(
     _: u32,
     _: u32,
 ) {
-    // Never call UI Automation inside a WinEvent callback. Coalesce notifications into one message.
+    queue_refresh();
+}
+
+pub(super) fn queue_refresh() {
+    // Never inspect inside callbacks. Coalesce UIA and WinEvent notifications into one message.
     let window = EVENT_WINDOW.load(Ordering::Acquire);
     if window != 0 && !REFRESH_PENDING.swap(true, Ordering::AcqRel) {
-        let _ = PostMessageW(Some(HWND(window as _)), WM_APP + 1, WPARAM(0), LPARAM(0));
+        let posted =
+            unsafe { PostMessageW(Some(HWND(window as _)), WM_APP + 1, WPARAM(0), LPARAM(0)) };
+        if posted.is_err() {
+            REFRESH_PENDING.store(false, Ordering::Release);
+        }
     }
 }
 
@@ -123,13 +143,33 @@ unsafe extern "system" fn window_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match message {
-        WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
+        // Consume the activation mouse-down. Mouse-up below performs the action
+        // without passing a focus-changing button-down to the default handler.
+        WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATEANDEAT as isize),
+        WM_LBUTTONDOWN => LRESULT(0),
         WM_LBUTTONUP => {
             WATCHER.with(|state| {
-                if let Some(state) = state.borrow().as_ref() {
-                    let _ = state.runtime.send(Action::Toggle);
+                if let Some(state) = state.borrow_mut().as_mut() {
+                    let mode = state.runtime.overlay.mode.load(Ordering::Acquire);
+                    match super::overlay::hit_test(mode, lparam.0) {
+                        Some(ButtonAction::Dismiss) => {
+                            let target = state.focus.inspect();
+                            if target.same(&state.target) {
+                                state.dismissals.dismiss(&state.focus, &target, window);
+                            }
+                        }
+                        Some(ButtonAction::Activate) => {
+                            let _ = state.runtime.send(Action::Toggle);
+                        }
+                        None => {}
+                    }
                 }
             });
+            queue_refresh();
+            LRESULT(0)
+        }
+        WM_TIMER if wparam.0 == super::dismissal::EXPIRY_TIMER => {
+            refresh();
             LRESULT(0)
         }
         WM_PAINT => {
@@ -186,19 +226,16 @@ fn pause() {
 }
 
 fn refresh() {
-    WATCHER.with(|state| {
-        let state = state.borrow();
-        let Some(state) = state.as_ref() else {
-            return;
-        };
+    let display = WATCHER.with(|state| {
+        let mut state = state.borrow_mut();
+        let state = state.as_mut()?;
+        state.dismissals.expire(state.window);
         let mode = state.runtime.overlay.mode.load(Ordering::Acquire);
         if mode == 0 {
-            unsafe {
-                let _ = ShowWindow(state.window, SW_HIDE);
-            }
-            return;
+            return Some((state.window, mode, None));
         }
         let target = state.focus.inspect();
+        state.target = target.clone();
         let message = if target.secure {
             "Protected or uninspectable field"
         } else if target.known() {
@@ -213,17 +250,29 @@ fn refresh() {
         if changed {
             state.runtime.update(|s| s.target_status = message.into());
         }
+        let bounds = if mode == 1 && state.dismissals.hidden(&state.focus, &target) {
+            None
+        } else if target.known() {
+            Some(target.bounds)
+        } else if matches!(mode, 2 | 3) {
+            let mut bounds = windows::Win32::Foundation::RECT::default();
+            unsafe { GetWindowRect(GetForegroundWindow(), &mut bounds) }
+                .ok()
+                .map(|_| bounds)
+        } else {
+            None
+        };
+        Some((state.window, mode, bounds))
+    });
+    // Native positioning can send window messages synchronously; release the state borrow first.
+    if let Some((window, mode, bounds)) = display {
         unsafe {
-            if mode > 0 && target.known() {
-                super::overlay::position(state.window, target.bounds);
-            } else if matches!(mode, 2 | 3) {
-                let mut bounds = windows::Win32::Foundation::RECT::default();
-                if GetWindowRect(GetForegroundWindow(), &mut bounds).is_ok() {
-                    super::overlay::position(state.window, bounds);
+            match bounds {
+                Some(bounds) => super::overlay::position(window, bounds, mode),
+                None => {
+                    let _ = ShowWindow(window, SW_HIDE);
                 }
-            } else {
-                let _ = ShowWindow(state.window, SW_HIDE);
             }
         }
-    });
+    }
 }

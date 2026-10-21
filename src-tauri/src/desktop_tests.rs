@@ -181,3 +181,63 @@ fn browser_inputs_and_contenteditable_receive_unicode() {
     action(directory.path(), serde_json::json!({ "action": "close" }));
     drop(browser);
 }
+
+#[test]
+#[ignore = "opens real WPF document controls; requires an unlocked desktop"]
+fn document_inputs_receive_unicode_and_refuse_read_only_or_changed_targets() {
+    let directory = tempfile::tempdir().unwrap();
+    let script =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/desktop/document-fixture.ps1");
+    let editor = Editor(
+        Command::new("powershell.exe")
+            .args(["-NoProfile", "-STA", "-File"])
+            .arg(script)
+            .arg("-Directory")
+            .arg(directory.path())
+            .creation_flags(0x08000000)
+            .spawn()
+            .unwrap(),
+    );
+    wait_until("fixture ready", || directory.path().join("ready").exists());
+    let focus = Focus::new().unwrap();
+    wait_until("document input focused", || {
+        let target = focus.inspect();
+        target.known() && target.process_id == editor.0.id()
+    });
+    let target = focus.inspect();
+    let authorization = AtomicU64::new(1);
+    let expected = "Grüße 👋 مرحبا";
+    assert_eq!(
+        focus.insert(&target, expected, &authorization, 1),
+        Delivery::Submitted
+    );
+    action(
+        directory.path(),
+        serde_json::json!({ "action": "focus", "index": 1 }),
+    );
+    wait_until("document field changed", || !target.same(&focus.inspect()));
+    assert_eq!(
+        focus.insert(&target, "refused", &authorization, 1),
+        Delivery::Rejected
+    );
+    action(directory.path(), serde_json::json!({ "action": "read" }));
+    let json = std::fs::read_to_string(directory.path().join("result.json")).unwrap();
+    let result: serde_json::Value =
+        serde_json::from_str(json.trim_start_matches('\u{feff}')).unwrap();
+    assert_eq!(result["first"], expected);
+    assert_eq!(result["second"], "");
+    action(
+        directory.path(),
+        serde_json::json!({ "action": "focus", "index": 2 }),
+    );
+    wait_until("read only document focused", || {
+        let current = focus.inspect();
+        current.process_id == editor.0.id() && !current.secure && !current.editable
+    });
+    assert!(!focus.inspect().known());
+    assert_eq!(
+        focus.insert(&focus.inspect(), "refused", &authorization, 1),
+        Delivery::Rejected
+    );
+    action(directory.path(), serde_json::json!({ "action": "close" }));
+}

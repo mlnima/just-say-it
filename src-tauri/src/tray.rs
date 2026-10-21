@@ -8,6 +8,9 @@ use tauri::{
     Manager,
 };
 
+#[cfg(windows)]
+mod spacing;
+
 pub fn create(app: &tauri::AppHandle) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let finish = MenuItem::with_id(app, "finish", "Finish dictation", true, None::<&str>)?;
@@ -24,10 +27,24 @@ pub fn create(app: &tauri::AppHandle) -> tauri::Result<()> {
     let restart = MenuItem::with_id(app, "restart", "Restart application", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let dictation_separator = PredefinedMenuItem::separator(app)?;
+    let listening_separator = PredefinedMenuItem::separator(app)?;
+    let application_separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
         &[
-            &settings, &separator, &finish, &cancel, &pause, &resume, &recovery, &restart, &quit,
+            &settings,
+            &separator,
+            &finish,
+            &cancel,
+            &dictation_separator,
+            &pause,
+            &resume,
+            &listening_separator,
+            &recovery,
+            &application_separator,
+            &restart,
+            &quit,
         ],
     )?;
     let mut builder = TrayIconBuilder::with_id("dictation")
@@ -61,7 +78,9 @@ pub fn create(app: &tauri::AppHandle) -> tauri::Result<()> {
         builder = builder.icon(icon.clone());
     }
     match builder.build(app) {
-        Ok(_) => {
+        Ok(tray) => {
+            #[cfg(windows)]
+            spacing::apply(&tray, &menu)?;
             app.state::<Runtime>()
                 .tray_available
                 .store(true, std::sync::atomic::Ordering::Release);

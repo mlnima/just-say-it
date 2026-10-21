@@ -1,0 +1,8 @@
+{
+  "sdkVersion": "1.4.321.1",
+  "sdkUrl": "https://sdk.lunarg.com/sdk/download/1.4.321.1/windows/vulkansdk-windows-X64-1.4.321.1.exe",
+  "sdkSha256": "baaa4f7ca11ed3d82aa1c102b21208915485bbaa473068c763daa425cca468bd",
+  "runtimeUrl": "https://sdk.lunarg.com/sdk/download/1.4.321.0/windows/VulkanRT-X64-1.4.321.0-Components.zip",
+  "runtimeSha256": "f8ba79303face4b72a2f302f1a46e8c918995b54fbf24c0c9fc6c3d3ef525dca",
+  "runtimeArchiveDirectory": "VulkanRT-X64-1.4.321.0-Components"
+}

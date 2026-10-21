@@ -4,9 +4,37 @@ use windows::{
     Win32::{
         Foundation::{COLORREF, HWND, RECT},
         Graphics::Gdi::*,
+        System::LibraryLoader::GetModuleHandleW,
         UI::WindowsAndMessaging::*,
     },
 };
+
+pub(super) enum ButtonAction {
+    Activate,
+    Dismiss,
+}
+
+pub(super) fn hit_test(mode: u8, point: isize) -> Option<ButtonAction> {
+    let x = point as i16 as i32;
+    let y = (point >> 16) as i16 as i32;
+    if !(0..defaults::OVERLAY_HEIGHT).contains(&y) || x < 0 {
+        return None;
+    }
+    match mode {
+        1 if (defaults::OVERLAY_WIDTH..width(mode)).contains(&x) => Some(ButtonAction::Dismiss),
+        1 | 2 | 4 if x < defaults::OVERLAY_WIDTH => Some(ButtonAction::Activate),
+        _ => None,
+    }
+}
+
+fn width(mode: u8) -> i32 {
+    defaults::OVERLAY_WIDTH
+        + if mode == 1 {
+            defaults::OVERLAY_DISMISS_WIDTH
+        } else {
+            0
+        }
+}
 
 pub unsafe fn paint(window: HWND, mode: u8) {
     // Every GDI object created here is restored and deleted before EndPaint.
@@ -21,7 +49,7 @@ pub unsafe fn paint(window: HWND, mode: u8) {
         dc,
         0,
         0,
-        defaults::OVERLAY_WIDTH,
+        width(mode),
         defaults::OVERLAY_HEIGHT,
         12,
         12,
@@ -45,15 +73,42 @@ pub unsafe fn paint(window: HWND, mode: u8) {
     let previous_font = SelectObject(dc, font.into());
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, COLORREF(0x00f8fff1));
+    let idle = !matches!(mode, 2..=4);
+    if idle {
+        // Tauri embeds the icon as IDI_APPLICATION; Windows owns the shared handle.
+        let icon = GetModuleHandleW(None).and_then(|module| {
+            LoadImageW(
+                Some(module.into()),
+                IDI_APPLICATION,
+                IMAGE_ICON,
+                20,
+                20,
+                LR_SHARED,
+            )
+        });
+        if let Ok(icon) = icon {
+            let _ = DrawIconEx(
+                dc,
+                14,
+                (defaults::OVERLAY_HEIGHT - 20) / 2,
+                HICON(icon.0),
+                20,
+                20,
+                0,
+                None,
+                DI_NORMAL,
+            );
+        }
+    }
     let label = match mode {
         2 => "■  Finish",
         3 => "…  Working",
         4 => "↳  Insert",
-        _ => "●  Dictate",
+        _ => "Dictate",
     };
     let mut label: Vec<u16> = label.encode_utf16().collect();
     let mut bounds = RECT {
-        left: 0,
+        left: if idle { 32 } else { 0 },
         top: 0,
         right: defaults::OVERLAY_WIDTH,
         bottom: defaults::OVERLAY_HEIGHT,
@@ -64,6 +119,23 @@ pub unsafe fn paint(window: HWND, mode: u8) {
         &mut bounds,
         DT_SINGLELINE | DT_CENTER | DT_VCENTER,
     );
+    if mode == 1 {
+        let separator = defaults::OVERLAY_WIDTH;
+        let _ = MoveToEx(dc, separator, 7, None);
+        let _ = LineTo(dc, separator, defaults::OVERLAY_HEIGHT - 7);
+        let mut close_bounds = RECT {
+            left: separator,
+            top: 0,
+            right: width(mode),
+            bottom: defaults::OVERLAY_HEIGHT,
+        };
+        DrawTextW(
+            dc,
+            &mut [0x00d7],
+            &mut close_bounds,
+            DT_SINGLELINE | DT_CENTER | DT_VCENTER,
+        );
+    }
     SelectObject(dc, previous_font);
     SelectObject(dc, previous_pen);
     SelectObject(dc, previous_brush);
@@ -73,7 +145,7 @@ pub unsafe fn paint(window: HWND, mode: u8) {
     let _ = EndPaint(window, &paint);
 }
 
-pub unsafe fn position(window: HWND, bounds: RECT) {
+pub unsafe fn position(window: HWND, bounds: RECT, mode: u8) {
     let monitor = MonitorFromRect(&bounds, MONITOR_DEFAULTTONEAREST);
     let mut info = MONITORINFO {
         cbSize: std::mem::size_of::<MONITORINFO>() as u32,
@@ -84,7 +156,7 @@ pub unsafe fn position(window: HWND, bounds: RECT) {
         return;
     }
     let work = info.rcWork;
-    let width = defaults::OVERLAY_WIDTH;
+    let width = width(mode);
     let height = defaults::OVERLAY_HEIGHT;
     let x = bounds
         .left

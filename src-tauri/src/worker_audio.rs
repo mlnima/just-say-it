@@ -1,4 +1,4 @@
-use crate::worker::Worker;
+use crate::{worker::Worker, worker_control::Activation};
 use dictation_core::{defaults, ports::WakeDetector, session::Phase};
 use std::{
     sync::atomic::Ordering,
@@ -91,7 +91,9 @@ impl Worker {
                     }
                     return;
                 }
-            } else if self.session.phase == Phase::Idle && Instant::now() >= self.cooldown {
+            } else if matches!(self.session.phase, Phase::Idle | Phase::PendingDelivery)
+                && Instant::now() >= self.cooldown
+            {
                 self.pre_roll.extend(frame);
                 while self.pre_roll.len()
                     > defaults::PRE_ROLL_SECONDS * defaults::SAMPLE_RATE as usize
@@ -108,7 +110,7 @@ impl Worker {
                     if *quiet_samples as f32 / defaults::SAMPLE_RATE as f32
                         >= defaults::COMMAND_BOUNDARY_SECONDS
                     {
-                        if let Err(error) = self.start(true) {
+                        if let Err(error) = self.start(Activation::Wake) {
                             self.fail(error);
                         }
                     }

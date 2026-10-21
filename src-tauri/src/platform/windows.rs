@@ -1,17 +1,19 @@
-use dictation_core::session::{safe_inline_text, Delivery};
-use std::sync::{
-    atomic::{AtomicIsize, AtomicU64, AtomicU8, Ordering},
-    Arc,
+use dictation_core::{
+    defaults,
+    session::{safe_inline_text, Delivery},
 };
-use windows::core::Interface;
+use std::{
+    sync::{
+        atomic::{AtomicIsize, AtomicU64, AtomicU8, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 use windows::Win32::{
     Foundation::{HWND, RECT},
-    System::{
-        Com::{
-            CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
-            COINIT_MULTITHREADED, SAFEARRAY,
-        },
-        Ole::*,
+    System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+        COINIT_MULTITHREADED,
     },
     UI::{Accessibility::*, Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
@@ -62,6 +64,8 @@ pub struct Target {
     pub editable: bool,
     pub secure: bool,
     pub own_process: bool,
+    pub(super) known_password: bool,
+    pub(super) keyboard_window: Option<super::ShortcutTarget>,
 }
 
 impl Target {
@@ -74,16 +78,28 @@ impl Target {
             && !self.runtime_id.is_empty()
     }
     pub fn same(&self, other: &Self) -> bool {
-        self.known()
+        let same_field = self.known()
             && other.known()
             && self.window == other.window
             && self.process_id == other.process_id
-            && self.runtime_id == other.runtime_id
+            && self.runtime_id == other.runtime_id;
+        self.keyboard_window.as_ref().map_or(same_field, |window| {
+            window.window == other.window
+                && window.is_current()
+                && !other.known_password
+                && !other.own_process
+                && (same_field || (!self.known() && !other.known()))
+        })
+    }
+
+    pub fn window_only(&self) -> bool {
+        self.keyboard_window.is_some() && !self.known()
     }
 }
 
 pub struct Focus {
     automation: std::mem::ManuallyDrop<IUIAutomation>,
+    focus_events: Option<IUIAutomationFocusChangedEventHandler>,
 }
 
 impl Focus {
@@ -93,81 +109,56 @@ impl Focus {
             CoInitializeEx(None, COINIT_MULTITHREADED)
                 .ok()
                 .map_err(|_| "Windows accessibility initialization failed.")?;
-            match CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER) {
-                Ok(automation) => {
-                    if let Ok(options) = automation.cast::<IUIAutomation2>() {
-                        let _ = options.SetConnectionTimeout(
-                            dictation_core::defaults::ACCESSIBILITY_TIMEOUT_MILLIS,
-                        );
-                        let _ = options.SetTransactionTimeout(
-                            dictation_core::defaults::ACCESSIBILITY_TIMEOUT_MILLIS,
-                        );
-                    }
-                    Ok(Self {
-                        automation: std::mem::ManuallyDrop::new(automation),
-                    })
-                }
-                Err(_) => {
-                    CoUninitialize();
-                    Err("Windows input inspection is unavailable.".into())
-                }
-            }
+            let initialized = (|| -> windows::core::Result<Self> {
+                let automation: IUIAutomation2 =
+                    CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER)?;
+                automation
+                    .SetConnectionTimeout(dictation_core::defaults::ACCESSIBILITY_TIMEOUT_MILLIS)?;
+                automation.SetTransactionTimeout(
+                    dictation_core::defaults::ACCESSIBILITY_TIMEOUT_MILLIS,
+                )?;
+                Ok(Self {
+                    automation: std::mem::ManuallyDrop::new(automation.into()),
+                    focus_events: None,
+                })
+            })();
+            initialized.map_err(|_| {
+                CoUninitialize();
+                "Windows input inspection is unavailable.".into()
+            })
         }
     }
 
     pub fn inspect(&self) -> Target {
-        unsafe {
-            let foreground = GetForegroundWindow();
-            let window = foreground.0 as isize;
-            let mut window_process = 0;
-            GetWindowThreadProcessId(foreground, Some(&mut window_process));
-            if window_process == std::process::id() {
-                return Target {
-                    window,
-                    process_id: window_process,
-                    own_process: true,
-                    ..Default::default()
-                };
-            }
-            let Ok(element) = self.automation.GetFocusedElement() else {
-                return Target {
-                    window,
-                    ..Default::default()
-                };
-            };
-            let process_id = element.CurrentProcessId().unwrap_or_default() as u32;
-            let own_process = process_id == std::process::id();
-            // An unknown password flag is treated as unsafe, never as permission to type.
-            let secure = element
-                .CurrentIsPassword()
-                .map(|b| b.as_bool())
-                .unwrap_or(true);
-            let focused = element.CurrentHasKeyboardFocus().is_ok_and(|b| b.as_bool());
-            let control = element.CurrentControlType().unwrap_or_default();
-            let value: Result<IUIAutomationValuePattern, _> =
-                element.GetCurrentPatternAs(UIA_ValuePatternId);
-            let text: Result<IUIAutomationTextPattern, _> =
-                element.GetCurrentPatternAs(UIA_TextPatternId);
-            let editable = focused
-                && match value {
-                    Ok(pattern) => pattern.CurrentIsReadOnly().is_ok_and(|b| !b.as_bool()),
-                    Err(_) => control == UIA_EditControlTypeId && text.is_ok(),
-                };
-            let runtime_id = element
-                .GetRuntimeId()
-                .ok()
-                .and_then(|array| read_runtime_id(array).ok())
-                .unwrap_or_default();
-            Target {
-                process_id,
-                window,
-                runtime_id,
-                bounds: element.CurrentBoundingRectangle().unwrap_or_default(),
-                editable,
-                secure,
-                own_process,
-            }
+        unsafe { super::inspection::inspect(&self.automation) }
+    }
+
+    pub fn shortcut_target(&self, window: Option<super::ShortcutTarget>) -> Target {
+        let Some(window) = window.filter(|window| window.is_current()) else {
+            return Target::default();
+        };
+        let mut target = self.inspect();
+        if window.window != target.window || !window.is_current()
+            || target.known_password || target.own_process
+        {
+            return Target::default();
         }
+        target.keyboard_window = Some(window);
+        target
+    }
+
+    pub(super) fn document_id(&self, target: &Target) -> Option<Vec<i32>> {
+        unsafe { super::inspection::document_id(&self.automation, target) }
+    }
+
+    pub fn watch_changes(mut self) -> Result<Self, String> {
+        // Register and remove on the dictation MTA worker, which owns no windows.
+        let handler: IUIAutomationFocusChangedEventHandler =
+            super::focus_events::FocusEvents.into();
+        unsafe { self.automation.AddFocusChangedEventHandler(None, &handler) }
+            .map_err(|_| "Windows input focus notifications are unavailable.")?;
+        self.focus_events = Some(handler);
+        Ok(self)
     }
 
     pub fn insert(
@@ -183,40 +174,35 @@ impl Focus {
         {
             return Delivery::Rejected;
         }
-        // Modifier keys must be released; delivery is never blindly retried.
-        let held = [VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN]
+        // A finish shortcut may still be held after a short transcription.
+        // Wait on the worker before sending anything, checking cancellation and
+        // the original field throughout. The input operation is attempted once.
+        let deadline = Instant::now()
+            + Duration::from_millis(defaults::INSERTION_KEY_RELEASE_MILLIS);
+        while [VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN]
             .iter()
-            .any(|key| unsafe { GetAsyncKeyState(key.0 as i32) < 0 });
-        if held {
-            return Delivery::Rejected;
+            .any(|key| unsafe { GetAsyncKeyState(key.0 as i32) < 0 })
+        {
+            if Instant::now() >= deadline
+                || authorization.load(Ordering::Acquire) != id
+                || !target.same(&self.inspect())
+            {
+                return Delivery::Rejected;
+            }
+            std::thread::sleep(Duration::from_millis(defaults::INSERTION_KEY_POLL_MILLIS));
         }
-        let events: Vec<INPUT> = text
-            .encode_utf16()
-            .flat_map(|unit| {
-                [false, true].map(|up| INPUT {
-                    r#type: INPUT_KEYBOARD,
-                    Anonymous: INPUT_0 {
-                        ki: KEYBDINPUT {
-                            wVk: VIRTUAL_KEY(0),
-                            wScan: unit,
-                            dwFlags: KEYEVENTF_UNICODE
-                                | if up {
-                                    KEYEVENTF_KEYUP
-                                } else {
-                                    KEYBD_EVENT_FLAGS(0)
-                                },
-                            time: 0,
-                            dwExtraInfo: 0,
-                        },
-                    },
-                })
-            })
-            .collect();
-        if !target.same(&self.inspect()) || authorization.load(Ordering::Acquire) != id {
+        let layout = target.keyboard_window.as_ref().map(|window| window.layout());
+        let events = super::keyboard_events::events(text, layout);
+        if !target.same(&self.inspect()) || authorization.load(Ordering::Acquire) != id
+            || target.keyboard_window.as_ref().map(|window| window.layout()) != layout
+        {
             return Delivery::Rejected;
         }
         // SAFETY: a bounded, fully initialized input slice remains alive for this synchronous call.
         let sent = unsafe { SendInput(&events, std::mem::size_of::<INPUT>() as i32) } as usize;
+        if sent > 0 && sent < events.len() {
+            super::keyboard_events::release_pressed(&events[..sent]);
+        }
         match sent {
             0 => Delivery::Rejected,
             count if count != events.len() => Delivery::Partial,
@@ -229,33 +215,13 @@ impl Focus {
 impl Drop for Focus {
     fn drop(&mut self) {
         unsafe {
+            if let Some(handler) = self.focus_events.take() {
+                let _ = self.automation.RemoveFocusChangedEventHandler(&handler);
+            }
             std::mem::ManuallyDrop::drop(&mut self.automation);
             CoUninitialize();
         }
     }
-}
-
-unsafe fn read_runtime_id(array: *mut SAFEARRAY) -> windows::core::Result<Vec<i32>> {
-    // UIA owns a one-dimensional VT_I4 array returned to the caller. Always release it.
-    let result = (|| {
-        let lower = SafeArrayGetLBound(array, 1)?;
-        let upper = SafeArrayGetUBound(array, 1)?;
-        let length = (upper - lower + 1).max(0) as usize;
-        if length > 128 {
-            return Err(windows::core::Error::from_win32());
-        }
-        let mut pointer = std::ptr::null_mut();
-        SafeArrayAccessData(array, &mut pointer)?;
-        let values = if length == 0 {
-            Vec::new()
-        } else {
-            std::slice::from_raw_parts(pointer as *const i32, length).to_vec()
-        };
-        SafeArrayUnaccessData(array)?;
-        Ok(values)
-    })();
-    let _ = SafeArrayDestroy(array);
-    result
 }
 
 pub fn start(runtime: crate::runtime::Runtime) {

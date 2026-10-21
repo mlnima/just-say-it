@@ -2,11 +2,27 @@ use crate::defaults;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum ModelRetention {
+    IdleSeconds(u64),
+    Never,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpeechDevice {
+    Cpu,
+    Gpu,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub schema_version: u32,
     pub microphone: Option<String>,
     pub speech_model: Option<String>,
+    pub speech_device: Option<SpeechDevice>,
+    pub model_retention: ModelRetention,
     pub language: Option<String>,
     pub wake_enabled: Option<bool>,
     pub wake_phrase: Option<String>,
@@ -14,9 +30,9 @@ pub struct Settings {
     pub stop_enabled: Option<bool>,
     pub stop_phrase: Option<String>,
     pub input_button: Option<bool>,
+    pub screen_overlay: Option<bool>,
     pub launch_at_login: Option<bool>,
     pub toggle_shortcut: Option<String>,
-    pub cancel_shortcut: Option<String>,
     pub silence_seconds: Option<f32>,
     pub no_speech_seconds: Option<f32>,
     pub recording_limit_seconds: Option<u32>,
@@ -29,6 +45,8 @@ impl Default for Settings {
             schema_version: defaults::SCHEMA_VERSION,
             microphone: None,
             speech_model: None,
+            speech_device: None,
+            model_retention: defaults::MODEL_RETENTION,
             language: None,
             wake_enabled: None,
             wake_phrase: None,
@@ -36,9 +54,9 @@ impl Default for Settings {
             stop_enabled: None,
             stop_phrase: None,
             input_button: None,
+            screen_overlay: None,
             launch_at_login: None,
             toggle_shortcut: None,
-            cancel_shortcut: None,
             silence_seconds: None,
             no_speech_seconds: None,
             recording_limit_seconds: None,
@@ -60,7 +78,26 @@ pub fn validate_phrase(phrase: &str) -> Result<String, String> {
 }
 
 impl Settings {
+    pub fn model_idle_seconds(&self) -> Option<u64> {
+        match self.model_retention {
+            ModelRetention::Never => None,
+            ModelRetention::IdleSeconds(seconds) => Some(seconds),
+        }
+    }
+
+    pub fn toggle_shortcut(&self) -> &str {
+        self.toggle_shortcut
+            .as_deref()
+            .unwrap_or(defaults::TOGGLE_SHORTCUT)
+    }
+
     pub fn validate(&self) -> Result<(), String> {
+        if self
+            .model_idle_seconds()
+            .is_some_and(|seconds| !defaults::MODEL_IDLE_OPTIONS_SECONDS.contains(&seconds))
+        {
+            return Err("Choose a supported speech model idle timeout.".into());
+        }
         if self.schema_version != defaults::SCHEMA_VERSION {
             return Err(
                 "Unsupported settings version; the original file has been preserved.".into(),
@@ -72,7 +109,6 @@ impl Settings {
             &self.language,
             &self.wake_model,
             &self.toggle_shortcut,
-            &self.cancel_shortcut,
         ]
         .into_iter()
         .flatten()
@@ -112,9 +148,6 @@ impl Settings {
             .is_some_and(|n| !(5..=120).contains(&n))
         {
             return Err("Recording limit must be between 5 and 120 seconds.".into());
-        }
-        if self.toggle_shortcut.is_some() && self.toggle_shortcut == self.cancel_shortcut {
-            return Err("Toggle and cancel shortcuts must differ.".into());
         }
         if self.wake_enabled == Some(true)
             && (self.wake_phrase.is_none() || self.wake_model.is_none())

@@ -1,11 +1,13 @@
+import { useId } from 'react';
 import { Field, Switch } from '../components/Fields';
 import { ModelPicker } from './ModelPicker';
 import { request } from '../bridge/commands';
 import type { Model } from '../bridge/types';
 import type { SettingsProps } from './AudioSettings';
 
-export const ActivationSettings = ({ draft, snapshot, patch, perform, models, refreshModels }: SettingsProps & { models: Model[]; refreshModels: () => Promise<void> }) => (
-  <>
+export const ActivationSettings = ({ draft, snapshot, patch, perform, models, refreshModels }: SettingsProps & { models: Model[]; refreshModels: () => Promise<void> }) => {
+  const shortcutId = useId();
+  return <>
     <section className="panel">
       <div className="panel-heading"><span className="step">02</span><div><h2>Your words, your cue</h2><p>A small local detector listens for your phrase. Whisper stays idle.</p></div></div>
       <ModelPicker kind="wake" value={draft.wake_model} onChange={(value) => patch({ wake_model: value })} models={models} snapshot={snapshot} perform={perform} refresh={refreshModels} />
@@ -18,11 +20,15 @@ export const ActivationSettings = ({ draft, snapshot, patch, perform, models, re
     </section>
     <section className="panel">
       <h2>A keyboard route, too</h2>
-      <div className="two-columns">
-        <Field label="Toggle recording" hint="Press once to start and again to finish."><input value={draft.toggle_shortcut ?? ''} placeholder="Control+Shift+Space" onChange={(event) => patch({ toggle_shortcut: event.target.value || null })} /></Field>
-        <Field label="Cancel recording" hint="Discards the active utterance."><input value={draft.cancel_shortcut ?? ''} placeholder="Control+Shift+Backspace" onChange={(event) => patch({ cancel_shortcut: event.target.value || null })} /></Field>
+      <div className="field">
+        <label htmlFor={shortcutId}>Record / stop shortcut</label>
+        <div className="inline-actions">
+          <input id={shortcutId} className="shortcut-input" aria-describedby={`${shortcutId}-hint`} value={draft.toggle_shortcut ?? ''} placeholder={`Default: ${snapshot.defaults.toggle_shortcut}`} onChange={(event) => patch({ toggle_shortcut: event.target.value || null })} />
+          <button type="button" className="secondary" disabled={!draft.toggle_shortcut} onClick={() => patch({ toggle_shortcut: null })}>Reset to default</button>
+        </div>
+        <small id={`${shortcutId}-hint`}>Press once to start recording and again to stop and transcribe. Leave empty to use the default. Save changes to apply.</small>
       </div>
-      <p className="muted">Actual registration: {snapshot.shortcuts_registered ? 'Toggle registered' : 'Toggle not registered'}. Tray Finish and Cancel are also available.</p>
+      <p className="muted">Actual registration: {snapshot.shortcuts_registered ? `Registered (${snapshot.settings.toggle_shortcut ?? snapshot.defaults.toggle_shortcut})` : 'Not registered'}. Tray Finish and Cancel are also available.</p>
     </section>
     <section className="panel">
       <h2>Know when to stop</h2>
@@ -34,5 +40,5 @@ export const ActivationSettings = ({ draft, snapshot, patch, perform, models, re
       </div>
       <Field label="No-speech timeout (seconds)" hint={`Runtime timeout when unset: ${snapshot.defaults.no_speech_seconds}s.`}><input type="number" min="1" max="30" value={draft.no_speech_seconds ?? ''} placeholder="Not configured" onChange={(event) => patch({ no_speech_seconds: event.target.value ? Number(event.target.value) : null })} /></Field>
     </section>
-  </>
-);
+  </>;
+};

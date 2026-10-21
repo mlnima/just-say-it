@@ -12,11 +12,18 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub enum Activation {
+    InputButton,
+    Wake,
+    Shortcut(Option<crate::platform::ShortcutTarget>),
+}
+
 impl Worker {
     pub fn command(&mut self, command: Command) {
         let result = match command {
             Command::Interrupt => Ok(()),
             Command::Action(action) => self.action(action),
+            Command::Shortcut(target) => self.toggle(Activation::Shortcut(target)),
             Command::Save(settings, reply) => {
                 let result = self.save(settings);
                 let _ = reply.try_send(result.clone());
@@ -27,16 +34,18 @@ impl Worker {
             Command::Quit => Ok(()),
         };
         if let Err(error) = result {
-            self.publish(error);
+            if self.session.phase == Phase::Transcribing {
+                self.fail(error);
+            } else {
+                self.publish(error);
+            }
         }
     }
 
     fn action(&mut self, action: Action) -> Result<(), String> {
         match action {
             Action::Quit | Action::Restart => Ok(()),
-            Action::Toggle if self.pending_armed => self.insert_pending(),
-            Action::Toggle if self.session.phase == Phase::Recording => self.finish(),
-            Action::Toggle => self.start(false),
+            Action::Toggle => self.toggle(Activation::InputButton),
             Action::Finish if self.session.phase == Phase::Recording => self.finish(),
             Action::Finish => Ok(()),
             Action::Pause | Action::Cancel => {
@@ -47,6 +56,12 @@ impl Worker {
                 self.wake_pending = None;
                 self.pending_armed = false;
                 self.test = None;
+                if matches!(
+                    self.session.phase,
+                    Phase::Preparing | Phase::Recording | Phase::Transcribing | Phase::Inserting
+                ) {
+                    self.last_model_use = Instant::now();
+                }
                 self.session.cancel(paused);
                 if let Ok(mut text) = self.runtime.recovery.lock() {
                     *text = None;
@@ -55,7 +70,6 @@ impl Worker {
                     self.settings.paused = true;
                     self.wake = None;
                     self.stop = None;
-                    self.whisper = None;
                     self.store.save(&self.settings)?;
                 }
                 self.cooldown = Instant::now() + Duration::from_millis(defaults::COOLDOWN_MILLIS);
@@ -97,20 +111,37 @@ impl Worker {
         }
     }
 
-    pub fn start(&mut self, wake_started: bool) -> Result<(), String> {
+    fn toggle(&mut self, activation: Activation) -> Result<(), String> {
+        match self.session.phase {
+            _ if self.pending_armed => self.insert_pending(),
+            Phase::Recording => self.finish(),
+            _ => self.start(activation),
+        }
+    }
+
+    pub fn start(&mut self, activation: Activation) -> Result<(), String> {
+        let wake_started = matches!(activation, Activation::Wake);
         if self.settings.paused {
             return Err("Listening is paused. Resume explicitly from the tray or settings.".into());
         }
         if self.test.is_some() {
             return Err("Finish the microphone or phrase test before dictating.".into());
         }
-        if Instant::now() < self.cooldown {
+        if wake_started && Instant::now() < self.cooldown {
             return Ok(());
         }
         self.settings.recording_ready()?;
+        // Starting another dictation deliberately replaces the previous result.
+        // A failed insertion must not disable the user's activation shortcut.
+        if self.session.phase == Phase::PendingDelivery {
+            self.session.cancel(false);
+        }
         let id = self.session.start()?;
         self.runtime.authorization.store(id, Ordering::Release);
-        self.target = Some(self.focus.inspect());
+        self.target = Some(match activation {
+            Activation::Shortcut(target) => self.focus.shortcut_target(target),
+            _ => self.focus.inspect(),
+        });
         self.wake_started = wake_started;
         self.activity = SpeechActivity::default();
         self.vad = crate::voice_activity::VoiceActivity::new();
@@ -129,14 +160,7 @@ impl Worker {
         self.wake_pending = None;
         self.publish("Preparing the local speech model. Speak when recording begins.");
         let result = (|| {
-            if self.whisper.is_none() {
-                self.whisper = Some(crate::speech::LocalWhisper::load(
-                    self.settings
-                        .speech_model
-                        .as_deref()
-                        .ok_or("Choose a speech model.")?,
-                )?);
-            }
+            self.ensure_speech_model()?;
             self.stop = if self.settings.stop_enabled == Some(true) {
                 Some(LocalWake::load(
                     self.settings
@@ -171,9 +195,11 @@ impl Worker {
         }
         self.session.phase = Phase::Recording;
         self.last_audio = Instant::now();
-        self.publish(
-            "Recording. Use Finish in the tray, your toggle shortcut, or an enabled stopping rule.",
-        );
+        self.publish(if self.target.as_ref().is_some_and(|target| target.window_only()) {
+            "Recording for the window selected by your shortcut. Its text field cannot be inspected; keep the intended input open and use the shortcut again to finish."
+        } else {
+            "Recording. Use Finish in the tray, your toggle shortcut, or an enabled stopping rule."
+        });
         Ok(())
     }
 

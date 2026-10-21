@@ -75,7 +75,9 @@ fn keyword_model_recognizes_two_user_phrases_without_retraining() {
 fn whisper_transcribes_real_audio_and_honors_invalidated_authorization() {
     whisper_rs::install_logging_hooks();
     let model = artifact("models/ggml-tiny-q5_1.bin");
-    let mut speech = LocalWhisper::load(model.to_str().unwrap()).unwrap();
+    let mut speech = LocalWhisper::load(
+        model.to_str().unwrap(), dictation_core::settings::SpeechDevice::Cpu,
+    ).unwrap();
     let audio = wave("test-audio/dictation.wav");
     let authorization = Arc::new(AtomicU64::new(1));
     let text = speech

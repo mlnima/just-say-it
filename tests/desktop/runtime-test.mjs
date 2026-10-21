@@ -32,7 +32,7 @@ const settings = {
   wake_model: resolve('artifacts/models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01'),
   wake_phrase: 'hello little notebook', wake_enabled: false, input_button: true,
   no_speech_seconds: 30, silence_seconds: 30,
-  toggle_shortcut: 'Control+Shift+F9', cancel_shortcut: 'Control+Shift+F10',
+  toggle_shortcut: 'Control+Shift+F9',
 };
 await rpc('save_settings', { settings });
 await until(async () => (await status()).phase === 'idle', 'Saved button configuration did not apply');

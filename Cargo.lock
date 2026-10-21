@@ -2301,6 +2301,7 @@ name = "just-say-it"
 version = "0.1.0"
 dependencies = [
  "bzip2 0.5.2",
+ "cc",
  "cpal",
  "crossbeam-channel",
  "dictation-core",
@@ -2324,6 +2325,7 @@ dependencies = [
  "webrtc-vad",
  "whisper-rs",
  "windows 0.61.3",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -4628,7 +4630,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -5344,6 +5346,7 @@ version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2088172d00f936c348d6a72f488dc2660ab3f507263a195df308a3c2383229f6"
 dependencies = [
+ "libc",
  "whisper-rs-sys",
 ]
 

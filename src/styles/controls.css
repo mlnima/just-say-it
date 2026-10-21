@@ -12,6 +12,7 @@ select { padding-right: 25px; }
 .text-button { border: 0; background: none; color: var(--text-button); font-size: 11px; padding: 7px 0; text-align: left; }
 .text-button:hover:not(:disabled) { text-decoration: underline; }
 .inline-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.shortcut-input { flex: 1; min-width: 180px; }
 .switch-row { display: flex; gap: 20px; align-items: center; justify-content: space-between; padding: 15px 0; }
 .switch-row strong { font-size: 12px; font-weight: 550; }
 .switch-row p { font-size: 11px; line-height: 1.65; margin-top: 4px; max-width: 470px; }

@@ -16,14 +16,14 @@ The first speech-to-text provider is local OpenAI Whisper inference. Later provi
 
 ## Scope discipline
 
-- Complete the requested task and its relevant verification. Do not add unrelated features, dependencies, formatting, cleanup, or architecture changes.
+- Complete the requested task and inspect the changes. Run tests or validation commands only when the user explicitly requests them, as detailed below. Do not add unrelated features, dependencies, formatting, cleanup, or architecture changes.
 - Inspect existing code, configuration, interfaces, and local instructions before editing. Reuse established patterns.
 - Preserve existing user changes. Never overwrite, delete, revert, or recreate unrelated work.
 - For investigation, planning, review, or explanation, do not change files unless implementation or documentation edits are requested.
 - For multi-step work, write a short checklist before editing. Keep implementation steps separate from acceptance criteria. Derive acceptance criteria from the requested result, not from what is easiest to build.
 - Resolve routine choices from evidence. Ask a focused question only when an unresolved choice changes behavior or scope. Do not repeatedly request permission for already authorized work.
 - Check official documentation for unfamiliar or version-dependent details, matching the installed version. Cite the documentation actually consulted.
-- Continue through failures caused by your changes, fix them, and rerun the affected checks. Report genuine blockers with the unfinished requirement and the specific missing input or access.
+- Continue through failures caused by your changes and fix them. Rerun affected checks only within the user's explicit testing request. Report genuine blockers with the unfinished requirement and the specific missing input or access.
 - Do not create commits, publish releases, or choose a project license on the owner's behalf unless asked.
 
 ## File size and organization
@@ -45,7 +45,7 @@ The first speech-to-text provider is local OpenAI Whisper inference. Later provi
 - Use bounded queues and explicit cancellation. Never block the audio callback or UI thread with inference, downloads, disk access, or network requests.
 - Keep real-time audio callbacks minimal. Avoid allocation, blocking locks, logging, and other unpredictable work in them.
 - Do not use unchecked panics for recoverable input, device, permission, model, or provider failures.
-- Isolate any necessary unsafe code or native interface code in small adapters, document its invariants, and test the boundary.
+- Isolate any necessary unsafe code or native interface code in small adapters and document its invariants. Include boundary checks when the user explicitly requests testing of that area.
 - A cancelled or outdated session must never insert late text. Only one coordinator may authorize an insertion.
 
 ## React and TypeScript rules
@@ -99,9 +99,13 @@ The first speech-to-text provider is local OpenAI Whisper inference. Later provi
 ## Verification and completion
 
 - Before finishing, compare the actual changes against every requested outcome and inspect for omissions and unintended modifications.
-- Use the smallest meaningful verification. Direct inspection can cover low-risk mechanical edits; behavior changes need relevant behavioral checks.
+- Run tests and validation commands only when the user explicitly asks. An implementation request alone does not authorize tests, builds, linting, typechecking, file-size checks, benchmarks, or other validation runs.
+- When testing is requested, test only the changed behavior and the directly affected paths needed to check it. Do not run unrelated checks or full suites unless the user explicitly requests that scope.
+- Do not automatically repeat checks after every edit. Any necessary rerun must remain within the user's requested scope. Stop testing immediately when the user asks.
+- Do not launch or restart the application, open test windows or browser fixtures, inject mouse/keyboard input, or access the microphone for validation unless the user explicitly requests interactive desktop testing. Do not interrupt the user's normal desktop use.
+- Without a testing request, finish with code and diff inspection. State that tests were not run; do not ask for testing permission after routine edits or claim runtime behavior was verified.
 - Formatting, linting, typechecking, compilation, and mocked tests alone do not prove microphone capture, wake detection, global shortcuts, or cross-application insertion work.
-- Use unit tests for domain rules, integration tests for real providers/adapters, and desktop tests for OS behavior. Test failures and cancellation, not only the successful path.
+- When the user requests testing, use unit tests for changed domain rules, integration tests for changed providers/adapters, and explicitly requested desktop tests for changed OS behavior. Include relevant failures and cancellation within that scope.
 - Never weaken tests, suppress failures, or replace production behavior with mocks to claim success.
 - Cross-platform build results do not prove runtime compatibility. Record the OS, architecture, desktop/session type, permissions, target app, and actual observed outcome.
 - Mark unavailable platform verification as unverified. Do not replace a required platform with a different one or silently reduce acceptance criteria.
@@ -119,7 +123,7 @@ The first speech-to-text provider is local OpenAI Whisper inference. Later provi
 - `tests/desktop`: dedicated external editor/browser fixtures and real-runtime UI checks.
 - `.github/workflows/build.yml`: fresh Windows builds and tagged preview installer releases; macOS and Ubuntu packages are not published while their native functionality is unfinished.
 
-Commands executed successfully during initialization:
+Commands executed successfully during initialization (historical reference, not instructions to run them automatically):
 
 | Command | Observed purpose |
 | --- | --- |

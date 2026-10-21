@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || 'playwright');
 const directory = process.argv[2];
-const browser = await chromium.launch({ channel: 'msedge', headless: false, args: ['--force-renderer-accessibility'] });
+const browser = await chromium.launch({ channel: 'msedge', headless: false });
 const page = await browser.newPage();
 await page.goto(pathToFileURL(resolve('tests/desktop/browser-fixture.html')).href);
 await page.locator('#first').click();
